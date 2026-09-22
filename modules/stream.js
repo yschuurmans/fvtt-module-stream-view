@@ -1,6 +1,7 @@
 import { StreamView } from "./stream_view.js";
 import { StreamViewOptions } from './options.js';
 import { SpeechBubbles } from "./speech_bubbles.js";
+import { toElement } from './dom.js';
 import './types.js';
 
 export class StreamViewStream extends StreamView {
@@ -91,7 +92,7 @@ export class StreamViewStream extends StreamView {
 		document.body.classList.add('stream-view');
 
 		if (!game.settings.get('stream-view', 'show-logo')) {
-			$('img#logo').hide();
+			document.querySelector('img#logo')?.style.setProperty('display', 'none');
 		}
 
 		if (game.settings.get('core', 'chatBubblesPan')) {
@@ -123,36 +124,48 @@ export class StreamViewStream extends StreamView {
 			game.settings.get('stream-view', 'voice-video-border-color'),
 		);
 
-		libWrapper.register(
-			'stream-view',
-			'CameraViews.prototype.setUserIsSpeaking',
-			(wrapped, ...args) => {
-				Hooks.call('userIsSpeaking', ...args);
-				wrapped(...args);
-			},
-			'WRAPPER',
-		);
+		try {
+			libWrapper.register(
+				'stream-view',
+				'CameraViews.prototype.setUserIsSpeaking',
+				(wrapped, ...args) => {
+					Hooks.call('userIsSpeaking', ...args);
+					wrapped(...args);
+				},
+				'WRAPPER',
+			);
+		} catch (e) {
+			console.warn('stream-view: could not wrap CameraViews.prototype.setUserIsSpeaking, speaker-detection panning will be disabled', e);
+		}
 
-		libWrapper.register(
-			'stream-view',
-			'SoundsLayer.prototype.refresh',
-			(_wrapped, ..._args) => { },
-			'OVERRIDE',
-		);
+		try {
+			libWrapper.register(
+				'stream-view',
+				'SoundsLayer.prototype.refresh',
+				(_wrapped, ..._args) => { },
+				'OVERRIDE',
+			);
+		} catch (e) {
+			console.warn('stream-view: could not override SoundsLayer.prototype.refresh', e);
+		}
 
-		libWrapper.register(
-			'stream-view',
-			'ChatLog.prototype.scrollBottom',
-			(wrapped, ...args) => {
-				if (args.length === 0) {
-					args.push({ popout: true });
-				} else if (args[0] instanceof Object) {
-					args[0].popout = true;
-				}
-				wrapped(...args);
-			},
-			'WRAPPER',
-		);
+		try {
+			libWrapper.register(
+				'stream-view',
+				'ChatLog.prototype.scrollBottom',
+				(wrapped, ...args) => {
+					if (args.length === 0) {
+						args.push({ popout: true });
+					} else if (args[0] instanceof Object) {
+						args[0].popout = true;
+					}
+					wrapped(...args);
+				},
+				'WRAPPER',
+			);
+		} catch (e) {
+			console.warn('stream-view: could not wrap ChatLog.prototype.scrollBottom', e);
+		}
 
 		Hooks.on('targetToken', () => this.#focusUpdate());
 		Hooks.on('createMeasuredTemplate', () => this.#focusUpdate());
@@ -192,11 +205,11 @@ export class StreamViewStream extends StreamView {
 	}
 
 	/**
-	 * @param {JQuery<HTMLElement>} html
+	 * @param {JQuery<HTMLElement>|HTMLElement} html
 	 * @private
 	 */
 	#appendSpeechBubblesContainer(html) {
-		html.append(`<div id="${SpeechBubbles.containerId}"/>`);
+		toElement(html).insertAdjacentHTML('beforeend', `<div id="${SpeechBubbles.containerId}"/>`);
 	}
 
 	/**
@@ -308,22 +321,23 @@ export class StreamViewStream extends StreamView {
 	}
 
 	/**
-	 * @param {JQuery<HTMLElement>} html
+	 * @param {JQuery<HTMLElement>|HTMLElement} html
 	 * @private
 	 */
-	#handleRenderCameraViews() {
+	#handleRenderCameraViews(html) {
 		if (!game.settings.get('stream-view', 'show-voice-video')) {
 			this.#hideHtml(html);
 			return;
 		}
+		const root = toElement(html);
 		const position = game.settings.get('stream-view', 'voice-video-position');
 		const pixels = `${game.settings.get('stream-view', 'voice-video-width')}px`;
 		const isVertical = [AVSettings.DOCK_POSITIONS.TOP, AVSettings.DOCK_POSITIONS.BOTTOM].includes(position);
-		html.css('--av-width', pixels);
+		root.style.setProperty('--av-width', pixels);
 		if (isVertical) {
-			html.css('height', pixels);
+			root.style.height = pixels;
 		} else {
-			html.css('width', pixels);
+			root.style.width = pixels;
 		}
 	}
 
@@ -355,7 +369,7 @@ export class StreamViewStream extends StreamView {
 
 	/**
 	 * @param {Application} app
-	 * @param {JQuery<HTMLElement>} html
+	 * @param {JQuery<HTMLElement>|HTMLElement} html
 	 * @private
 	 */
 	#handlePopout(app, html) {
@@ -366,15 +380,20 @@ export class StreamViewStream extends StreamView {
 			return;
 		}
 
+		const root = toElement(html);
+
 		if (app instanceof ChatLog) {
 			// Extract chat log body.
-			html.find('#chat-controls').remove();
-			html.find('#chat-form').remove();
-			html.find('#chat-log').css('height', '100%');
-			this.#hidePopoutHeaders(html);
+			root.querySelector('#chat-controls')?.remove();
+			root.querySelector('#chat-form')?.remove();
+			const chatLog = root.querySelector('#chat-log');
+			if (chatLog) {
+				chatLog.style.height = '100%';
+			}
+			this.#hidePopoutHeaders(root);
 			return;
 		} else if (app instanceof CombatTracker) {
-			this.#hidePopoutHeaders(html);
+			this.#hidePopoutHeaders(root);
 			return;
 		} else if (app instanceof UserConfig) {
 			// Auto-close UserConfig immediately (we don't use it as the stream user).
@@ -386,7 +405,7 @@ export class StreamViewStream extends StreamView {
 		} else if (app.constructor?.name === 'PartyOverviewApp') {
 			// Skip tracking of PartyOverviewApp.
 			return;
-		} else if (html.hasClass('simple-calendar')) {
+		} else if (root.classList.contains('simple-calendar')) {
 			// Skip tracking of Simple Calendar.
 			return;
 		}
@@ -395,7 +414,7 @@ export class StreamViewStream extends StreamView {
 			return;
 		}
 
-		this.#hidePopoutHeaders(html);
+		this.#hidePopoutHeaders(root);
 		this.#setPopoutPosition(app);
 		const autoClose = game.settings.get('stream-view', 'popout-auto-close-duration');
 		this.#popouts.set(app.id, app);
@@ -585,7 +604,7 @@ export class StreamViewStream extends StreamView {
 			const maxHeight = game.settings.get('stream-view', 'chat-max-height-combat');
 			if (maxHeight > 0) {
 				const chat = this.#popouts.get(StreamViewOptions.PopoutIdentifiers.CHAT);
-				if (chat && chat.element.length > 0) {
+				if (chat?.rendered) {
 					// Workaround for core refusing to update height if it was initially `auto`
 					chat.options.height = maxHeight;
 					chat.setPosition({ height: maxHeight });
@@ -595,7 +614,7 @@ export class StreamViewStream extends StreamView {
 		} else {
 			const maxHeight = game.settings.get('stream-view', 'chat-max-height');
 			const chat = this.#popouts.get(StreamViewOptions.PopoutIdentifiers.CHAT);
-			if (chat && chat.element.length > 0) {
+			if (chat?.rendered) {
 				if (maxHeight > 0) {
 					chat.setPosition({ height: maxHeight });
 				} else {
@@ -934,14 +953,16 @@ export class StreamViewStream extends StreamView {
 	}
 
 	/**
-	 * @param {JQuery<HTMLElement>} html
+	 * @param {JQuery<HTMLElement>|HTMLElement} html
 	 * @private
 	 */
 	#hidePopoutHeaders(html) {
 		if (!game.settings.get('stream-view', 'hide-popout-headers')) {
 			return;
 		}
-		html.children('header.window-header').hide();
+		toElement(html).querySelectorAll(':scope > header.window-header').forEach((el) => {
+			el.style.display = 'none';
+		});
 	}
 
 	/**
@@ -968,7 +989,7 @@ export class StreamViewStream extends StreamView {
 	}
 
 	/**
-	 * @param {JQuery<HTMLElement>} html
+	 * @param {JQuery<HTMLElement>|HTMLElement} html
 	 * @private
 	 */
 	#hideHtml(html) {
@@ -976,7 +997,7 @@ export class StreamViewStream extends StreamView {
 			return;
 		}
 
-		html.hide();
+		toElement(html).style.display = 'none';
 	}
 
 	/**

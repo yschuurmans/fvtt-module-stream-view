@@ -26,20 +26,8 @@ class StreamViewInit {
 	}
 
 	static setup() {
-		let user, isGM;
-		if (game.release?.generation < 11) {
-			user = game.data.users.find((u) => {
-				return u._id === game.userId;
-			});
-			if (!user) {
-				console.error("StreamView: Could not find current user");
-			}
-			user.id = user._id;
-			isGM = user.role === 4;
-		} else {
-			user = game.user;
-			isGM = game.user.isGM;
-		}
+		const user = game.user;
+		const isGM = game.user.isGM;
 		if (isGM) {
 			const gm = new StreamViewGM(this.#socket);
 			Hooks.once('ready', () => StreamViewOptions.ready(gm));

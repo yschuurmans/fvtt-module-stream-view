@@ -1,4 +1,5 @@
 import { StreamViewOptions } from './options.js';
+import { toElement } from './dom.js';
 import './types.js';
 
 export class StreamView {
@@ -185,16 +186,16 @@ export class StreamView {
 	}
 
 	/**
-	 * @param {JQuery<HTMLElement>} html
+	 * @param {JQuery<HTMLElement>|HTMLElement} html
 	 * @private
 	 */
 	#hideStreamAVUser(html) {
 		if (game.settings.get('stream-view', 'voice-video-hide-stream-user')) {
-			const streamCamera = html.find(
+			const streamCamera = toElement(html).querySelector(
 				`div[data-user="${game.settings.get('stream-view', 'user-id')}"]`,
 			);
 			if (streamCamera) {
-				streamCamera.hide();
+				streamCamera.style.display = 'none';
 			}
 		}
 	}

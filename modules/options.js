@@ -648,7 +648,7 @@ export class StreamViewOptions {
 			bottom: 0,
 			left: 0,
 		};
-		const sidebarWidth = SidebarTab.defaultOptions.width;
+		const sidebarWidth = document.querySelector('#sidebar')?.getBoundingClientRect()?.width ?? 300;
 
 		const rtcSettings = game.settings.get('core', 'rtcWorldSettings');
 		if (

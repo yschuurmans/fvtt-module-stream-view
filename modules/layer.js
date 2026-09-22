@@ -1,7 +1,9 @@
 import { StreamViewOptions } from './options.js';
 import './types.js';
 
-export class StreamViewLayer extends InteractionLayer {
+const InteractionLayerBase = foundry?.canvas?.layers?.InteractionLayer ?? InteractionLayer;
+
+export class StreamViewLayer extends InteractionLayerBase {
 	/**
 	 * @type {LayerPreview}
 	 */

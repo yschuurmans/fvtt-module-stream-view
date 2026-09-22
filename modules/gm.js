@@ -1,6 +1,7 @@
 import { StreamView } from "./stream_view.js";
 import { StreamViewOptions } from './options.js';
 import { StreamViewLayer } from './layer.js';
+import { toElement } from './dom.js';
 import './types.js';
 
 const tokenTrackedIcon = 'modules/stream-view/icons/video-solid.svg';
@@ -94,58 +95,84 @@ export class StreamViewGM extends StreamView {
 	}
 
 	/**
-	 * @param {SceneControl[]} controls
+	 * @param {SceneControl[]|Record<string, SceneControlsConfig>} controls
 	 * @private
 	 */
 	#addStreamControls(controls) {
-		const control = {
-			name: 'stream-view',
-			title: 'Stream View',
-			icon: 'fas fa-broadcast-tower',
-			visible: game.user.isGM,
-			layer: 'streamView',
-			tools: [
-				{
-					name: 'camera-mode',
-					title: 'stream-view.controls.toggle-camera-mode',
-					icon: 'fas fa-video',
-					toggle: true,
-					active: this.cameraMode === StreamViewOptions.CameraMode.DIRECTED,
-					onClick: () => this.toggleCameraMode(),
-				},
-				{
-					name: 'camera-disable',
-					title: 'stream-view.controls.toggle-camera-disabled',
-					icon: 'fas fa-video-slash',
-					toggle: true,
-					active: this.cameraMode === StreamViewOptions.CameraMode.DISABLED,
-					onClick: () => this.toggleCameraDisabled(),
-				},
-				{
-					name: "toggle",
-					title: "CONTROLS.NoteToggle",
-					icon: "fas fa-map-pin",
-					toggle: true,
-					active: this.#notesStatus,
-					onClick: () => this.toggleNotes(),
-				},
-				{
-					name: 'close-popouts',
-					title: 'stream-view.controls.close-popouts',
-					icon: 'far fa-window-restore',
-					onClick: () => this.closePopouts(),
-				},
-			],
-		};
+		const toolDefs = [
+			{
+				name: 'camera-mode',
+				title: 'stream-view.controls.toggle-camera-mode',
+				icon: 'fas fa-video',
+				toggle: true,
+				active: this.cameraMode === StreamViewOptions.CameraMode.DIRECTED,
+				action: () => this.toggleCameraMode(),
+			},
+			{
+				name: 'camera-disable',
+				title: 'stream-view.controls.toggle-camera-disabled',
+				icon: 'fas fa-video-slash',
+				toggle: true,
+				active: this.cameraMode === StreamViewOptions.CameraMode.DISABLED,
+				action: () => this.toggleCameraDisabled(),
+			},
+			{
+				name: "toggle",
+				title: "CONTROLS.NoteToggle",
+				icon: "fas fa-map-pin",
+				toggle: true,
+				active: this.#notesStatus,
+				action: () => this.toggleNotes(),
+			},
+			{
+				name: 'close-popouts',
+				title: 'stream-view.controls.close-popouts',
+				icon: 'far fa-window-restore',
+				action: () => this.closePopouts(),
+			},
+		];
 		if (!game.settings.get('stream-view', 'disable-manually-tracked-tokens')) {
-			control.tools.push({
+			toolDefs.push({
 				name: 'token-tracked-clear',
 				title: 'stream-view.controls.token-tracked-clear',
 				icon: 'fas fa-users-slash',
-				onClick: () => this.clearTrackedTokens(),
+				action: () => this.clearTrackedTokens(),
 			});
 		}
-		controls.push(control);
+
+		// Foundry v13 reworked getSceneControlButtons from an array-of-controls
+		// (pushed to) with per-tool `onClick`, to an object keyed by control
+		// name with per-tool `onChange`.
+		if (game.release.generation >= 13) {
+			const tools = {};
+			toolDefs.forEach((t) => {
+				tools[t.name] = {
+					name: t.name,
+					title: t.title,
+					icon: t.icon,
+					toggle: t.toggle,
+					active: t.active,
+					onChange: t.action,
+				};
+			});
+			controls['stream-view'] = {
+				name: 'stream-view',
+				title: 'Stream View',
+				icon: 'fas fa-broadcast-tower',
+				visible: game.user.isGM,
+				layer: 'streamView',
+				tools,
+			};
+		} else {
+			controls.push({
+				name: 'stream-view',
+				title: 'Stream View',
+				icon: 'fas fa-broadcast-tower',
+				visible: game.user.isGM,
+				layer: 'streamView',
+				tools: toolDefs.map((t) => ({ ...t, onClick: t.action })),
+			});
+		}
 	}
 
 	/**
@@ -188,7 +215,7 @@ export class StreamViewGM extends StreamView {
 	}
 
 	/**
-	 * @param {JQuery<HTMLElement>} html
+	 * @param {JQuery<HTMLElement>|HTMLElement} html
 	 * @param {TokenHUD} tokenHUD
 	 * @private
 	 */
@@ -198,14 +225,16 @@ export class StreamViewGM extends StreamView {
 		}
 
 		const token = game.canvas.tokens.get(tokenHUD._id);
-		const rightCol = html.find('div.col.right');
+		const rightCol = toElement(html).querySelector('div.col.right');
 		if (rightCol) {
 			const title = game.i18n.localize('stream-view.controls.token-track-toggle');
-			let isActive = this._tokenDocumentHasTracking(token.document);
-			const icon = $(`<div class="control-icon ${isActive ? 'active' : ''}"><i title="${title}" class="fas fa-video"></i></div>`);
-			icon.on('click', () => {
+			const isActive = this._tokenDocumentHasTracking(token.document);
+			const icon = document.createElement('div');
+			icon.className = `control-icon ${isActive ? 'active' : ''}`;
+			icon.innerHTML = `<i title="${title}" class="fas fa-video"></i>`;
+			icon.addEventListener('click', () => {
 				this.#toggleControlledTokenTracking(!this._tokenDocumentHasTracking(token.document));
-				icon.toggleClass('active');
+				icon.classList.toggle('active');
 			});
 			rightCol.append(icon);
 		}
