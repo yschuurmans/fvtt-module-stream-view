@@ -563,7 +563,9 @@ export class StreamViewStream extends StreamView {
 		}
 		const coords = this.#tokenCoords(tokens);
 		coords.push(...this.#measuredTemplateCoords(this.#combatMeasuredTemplates(combat)));
-		this.#animateTo(this.#coordBounds(coords));
+		const view = this.#coordBounds(coords);
+		view.level = this.#targetLevel(tokens);
+		this.#animateTo(view);
 	}
 
 	/**
@@ -606,8 +608,31 @@ export class StreamViewStream extends StreamView {
 		if (game.settings.get('stream-view', 'ignore-invisible-players')) {
 			tokens = tokens.filter((t) => t.visible);
 		}
-		tokens = tokens.filter((t) => this._tokenOnCurrentLevel(t));
-		this.#animateTo(this.#coordBounds(this.#tokenCoords(tokens)));
+		const view = this.#coordBounds(this.#tokenCoords(tokens));
+		view.level = this.#targetLevel(tokens);
+		this.#animateTo(view);
+	}
+
+	/**
+	 * Determines which Scene Level the camera should be viewing to see the
+	 * given (already-selected, e.g. tracked/combatant) tokens — i.e. the
+	 * level to *switch to*, as opposed to a filter on which tokens qualify.
+	 *
+	 * @param {Token[]} tokens
+	 * @returns {string|number|undefined}
+	 * @private
+	 */
+	#targetLevel(tokens) {
+		if (!StreamView.levelsSupported) {
+			return undefined;
+		}
+		for (const t of tokens) {
+			const level = this._levelIdForToken(t);
+			if (level != null) {
+				return level;
+			}
+		}
+		return undefined;
 	}
 
 	/**
@@ -770,7 +795,7 @@ export class StreamViewStream extends StreamView {
 			targets.push(...this.#combatGMTokens());
 		}
 
-		return targets.filter((t) => this._tokenOnCurrentLevel(t));
+		return targets;
 	}
 
 	/**

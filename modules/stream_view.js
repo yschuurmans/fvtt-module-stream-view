@@ -249,14 +249,39 @@ export class StreamView {
 	}
 
 	/**
-	 * Whether a token belongs to the currently-viewed Scene Level. Fails
-	 * open (returns `true`) whenever levels aren't supported/in use, or when
-	 * the token's level can't be determined — this feature must never cause
-	 * a token that should be tracked to be silently dropped just because the
-	 * level lookup is uncertain.
+	 * Best-effort lookup of the Scene Level (floor) a token's elevation
+	 * places it on.
 	 *
 	 * NOTE: the token-elevation-to-level mapping used here (`Scene#getLevelForElevation`)
 	 * is UNCONFIRMED against the real v14 API — see {@link StreamView.levelsSupported}.
+	 *
+	 * @param {Token} token
+	 * @returns {string|number|null}
+	 * @protected
+	 */
+	_levelIdForToken(token) {
+		if (!StreamView.levelsSupported) {
+			return null;
+		}
+		try {
+			return game.canvas?.scene?.getLevelForElevation?.(token.document.elevation)?.id ?? null;
+		} catch {
+			return null;
+		}
+	}
+
+	/**
+	 * Whether a token belongs to the currently-viewed Scene Level. Fails
+	 * open (returns `true`) whenever levels aren't supported/in use, or when
+	 * the token's level can't be determined.
+	 *
+	 * IMPORTANT: this is only appropriate for filtering *incidental* camera
+	 * candidates (e.g. "which other targeted tokens should also frame into
+	 * view"). It must never be applied to a token that's explicitly being
+	 * followed (manually tracked, the active combatant, ...) — doing so
+	 * would filter out exactly the token whose level change should instead
+	 * trigger a level *switch*. See {@link _levelIdForToken}/`#targetLevel`
+	 * in stream.js for that case.
 	 *
 	 * @param {Token} token
 	 * @returns {boolean}
@@ -270,12 +295,8 @@ export class StreamView {
 		if (currentLevel == null) {
 			return true;
 		}
-		try {
-			const tokenLevel = game.canvas?.scene?.getLevelForElevation?.(token.document.elevation)?.id;
-			return tokenLevel == null || tokenLevel === currentLevel;
-		} catch {
-			return true;
-		}
+		const tokenLevel = this._levelIdForToken(token);
+		return tokenLevel == null || tokenLevel === currentLevel;
 	}
 
 	/**
