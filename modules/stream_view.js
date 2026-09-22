@@ -171,18 +171,6 @@ export class StreamView {
 		Hooks.on('renderCameraViews', (_app, html) => this.#hideStreamAVUser(html));
 		Hooks.on('updateToken', (doc) => this.#handleTrackedTokensUpdate(doc));
 		Hooks.on('deleteToken', (doc) => this.#handleTrackedTokensDelete(doc));
-
-		// Native v14 Scene Levels: switching the viewed level within an
-		// already-loaded scene may not re-fire `canvasReady`. The exact hook
-		// Foundry v14 fires for this is UNCONFIRMED against a live client —
-		// these are best-guess candidate names registered defensively (a hook
-		// name that's never called is a harmless no-op). Verify against a real
-		// v14 client and prune/replace with the confirmed hook.
-		if (StreamView.levelsSupported) {
-			['changeSceneLevel', 'sceneLevelChanged', 'viewLevel'].forEach((hook) => {
-				Hooks.on(hook, () => this.#handleCanvasReady());
-			});
-		}
 	}
 
 	/**
@@ -221,53 +209,37 @@ export class StreamView {
 	}
 
 	/**
-	 * Best-effort lookup of the Scene Level (floor) the local client is
-	 * currently viewing within the active scene.
+	 * The Scene Level (floor) id the local client is currently viewing
+	 * within the active scene, via `Scene#_view`. `null` on scenes with no
+	 * levels configured.
 	 *
-	 * NOTE: the exact v14 API for "current viewed level" is UNCONFIRMED — this
-	 * tries a handful of plausible accessors and falls back to `null`
-	 * (treated as "no level"/single-level scene) if none resolve. Must be
-	 * verified against a real v14 client and updated to the confirmed API.
-	 *
-	 * @returns {string|number|null}
+	 * @returns {string|null}
 	 * @protected
 	 */
 	_currentLevelId() {
 		if (!StreamView.levelsSupported) {
 			return null;
 		}
-		try {
-			return (
-				game.canvas?.scene?.getActiveLevel?.()?.id ??
-				ui.nav?.viewedLevel ??
-				game.canvas?.scene?._viewedLevel ??
-				null
-			);
-		} catch {
-			return null;
-		}
+		return game.canvas?.scene?._view ?? null;
 	}
 
 	/**
-	 * Best-effort lookup of the Scene Level (floor) a token's elevation
-	 * places it on.
-	 *
-	 * NOTE: the token-elevation-to-level mapping used here (`Scene#getLevelForElevation`)
-	 * is UNCONFIRMED against the real v14 API — see {@link StreamView.levelsSupported}.
+	 * The Scene Level (floor) id whose elevation range contains the given
+	 * token's elevation, looked up against `Scene#levels`.
 	 *
 	 * @param {Token} token
-	 * @returns {string|number|null}
+	 * @returns {string|null}
 	 * @protected
 	 */
 	_levelIdForToken(token) {
 		if (!StreamView.levelsSupported) {
 			return null;
 		}
-		try {
-			return game.canvas?.scene?.getLevelForElevation?.(token.document.elevation)?.id ?? null;
-		} catch {
-			return null;
-		}
+		const elevation = token?.document?.elevation ?? 0;
+		const level = game.canvas?.scene?.levels?.find(
+			(l) => elevation >= l.elevation.bottom && elevation < l.elevation.top,
+		);
+		return level?.id ?? null;
 	}
 
 	/**

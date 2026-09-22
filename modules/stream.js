@@ -301,28 +301,14 @@ export class StreamViewStream extends StreamView {
 
 	/**
 	 * Switches the local client's viewed Scene Level within the
-	 * already-loaded scene, without a full scene reload.
+	 * already-loaded scene, via `Scene#view({level})`.
 	 *
-	 * NOTE: the exact v14 API for this is UNCONFIRMED — this tries a couple
-	 * of plausible calls and gives up silently (logging a warning) if none
-	 * work. Must be verified against a real v14 client; also unconfirmed
-	 * whether either call causes a full canvas redraw (which would make an
-	 * otherwise-smooth camera pan visually jarring).
-	 *
-	 * @param {string|number} level
+	 * @param {string} level
 	 * @private
 	 */
 	async #switchToLevel(level) {
 		try {
-			if (foundry.applications?.ui?.SceneNavigation?.viewLevel) {
-				await foundry.applications.ui.SceneNavigation.viewLevel(level);
-				return;
-			}
-			if (game.canvas?.scene?.activate) {
-				await game.canvas.scene.activate({ viewOptions: { level } });
-				return;
-			}
-			console.warn('stream-view: no known API available to switch Scene Level, level will not be synced');
+			await game.canvas.scene.view({ level });
 		} catch (e) {
 			console.warn('stream-view: failed to switch Scene Level', e);
 		}
