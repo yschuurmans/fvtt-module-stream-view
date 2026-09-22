@@ -304,11 +304,7 @@ export class StreamViewGM extends StreamView {
 		if (!active || !this.isCameraDirected) {
 			return;
 		}
-		this._directedPan({
-			x: canvas.stage.pivot.x,
-			y: canvas.stage.pivot.y,
-			scale: canvas.stage.scale.x,
-		});
+		this._directedPan(this._currentViewCoord());
 	}
 
 	/**
@@ -345,11 +341,7 @@ export class StreamViewGM extends StreamView {
 		}
 
 		if (mode === StreamViewOptions.CameraMode.DIRECTED) {
-			this._directedPan({
-				x: canvas.stage.pivot.x,
-				y: canvas.stage.pivot.y,
-				scale: canvas.stage.scale.x,
-			});
+			this._directedPan(this._currentViewCoord());
 		}
 		ui.notifications.info(
 			`Stream View camera mode is now ${StreamViewOptions.localizeCameraMode(this.cameraMode)}`,
@@ -521,7 +513,7 @@ export class StreamViewGM extends StreamView {
 	}
 
 	clearTrackedTokens() {
-		this._trackedTokens.get(this._sceneId).forEach((t) => {
+		this._trackedTokens.get(this._trackedTokensKey).forEach((t) => {
 			const token = game.canvas.tokens.get(t);
 			this.#toggleTokenTracking(token, false);
 		});

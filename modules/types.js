@@ -9,6 +9,7 @@
  * @property {number} x
  * @property {number} y
  * @property {number} scale
+ * @property {string|number|null} [level] - Active Scene Level identifier (v14+ native Scene Levels only; absent/null pre-v14 or on scenes without levels)
  */
 
 /**

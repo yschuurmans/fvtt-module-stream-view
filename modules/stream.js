@@ -31,7 +31,7 @@ export class StreamViewStream extends StreamView {
 	constructor(socket) {
 		super(socket);
 
-		this.#debounceAnimateTo = foundry.utils.debounce(({ x, y, scale }) => this.#animateTo({ x, y, scale }), 100);
+		this.#debounceAnimateTo = foundry.utils.debounce(({ x, y, scale, level }) => this.#animateTo({ x, y, scale, level }), 100);
 	}
 
 	/**
@@ -178,7 +178,7 @@ export class StreamViewStream extends StreamView {
 		Hooks.on('deleteToken', () => this.#handleDeleteToken());
 
 		// Stream
-		this._socket.register('animateTo', ({ x, y, scale }) => this.#debounceAnimateTo({ x, y, scale }));
+		this._socket.register('animateTo', ({ x, y, scale, level }) => this.#debounceAnimateTo({ x, y, scale, level }));
 		this._socket.register('setCameraMode', (mode) => this.setCameraMode(mode));
 		this._socket.register('controlToken', (tokenId, controlled) => this.#controlToken(tokenId, controlled));
 		this._socket.register('closePopouts', () => { return this.#closePopouts() });
@@ -284,9 +284,12 @@ export class StreamViewStream extends StreamView {
 	 * @param {Coord} view
 	 * @private
 	 */
-	async #animateTo({ x, y, scale }) {
+	async #animateTo({ x, y, scale, level }) {
 		if (scale === undefined) {
 			scale = game.settings.get('stream-view', 'minimum-scale');
+		}
+		if (StreamView.levelsSupported && level != null && level !== this._currentLevelId()) {
+			await this.#switchToLevel(level);
 		}
 		const duration = game.settings.get('stream-view', 'animation-duration');
 		if (game.settings.get('stream-view', 'preview-display') !== StreamViewOptions.PreviewDisplay.NEVER) {
@@ -294,6 +297,35 @@ export class StreamViewStream extends StreamView {
 		}
 		canvas.getLayerByEmbeddedName(CONFIG.AmbientSound.objectClass.name).previewSound({ x, y });
 		return canvas.animatePan({ x, y, scale, duration });
+	}
+
+	/**
+	 * Switches the local client's viewed Scene Level within the
+	 * already-loaded scene, without a full scene reload.
+	 *
+	 * NOTE: the exact v14 API for this is UNCONFIRMED — this tries a couple
+	 * of plausible calls and gives up silently (logging a warning) if none
+	 * work. Must be verified against a real v14 client; also unconfirmed
+	 * whether either call causes a full canvas redraw (which would make an
+	 * otherwise-smooth camera pan visually jarring).
+	 *
+	 * @param {string|number} level
+	 * @private
+	 */
+	async #switchToLevel(level) {
+		try {
+			if (foundry.applications?.ui?.SceneNavigation?.viewLevel) {
+				await foundry.applications.ui.SceneNavigation.viewLevel(level);
+				return;
+			}
+			if (game.canvas?.scene?.activate) {
+				await game.canvas.scene.activate({ viewOptions: { level } });
+				return;
+			}
+			console.warn('stream-view: no known API available to switch Scene Level, level will not be synced');
+		} catch (e) {
+			console.warn('stream-view: failed to switch Scene Level', e);
+		}
 	}
 
 	/**
@@ -558,8 +590,8 @@ export class StreamViewStream extends StreamView {
 		}
 
 		let tokens = [];
-		if (this._trackedTokens.get(this._sceneId)?.size > 0) {
-			this._trackedTokens.get(this._sceneId).forEach((id) => {
+		if (this._trackedTokens.get(this._trackedTokensKey)?.size > 0) {
+			this._trackedTokens.get(this._trackedTokensKey).forEach((id) => {
 				const token = game.canvas.tokens.get(id);
 				if (token) {
 					tokens.push(token);
@@ -574,6 +606,7 @@ export class StreamViewStream extends StreamView {
 		if (game.settings.get('stream-view', 'ignore-invisible-players')) {
 			tokens = tokens.filter((t) => t.visible);
 		}
+		tokens = tokens.filter((t) => this._tokenOnCurrentLevel(t));
 		this.#animateTo(this.#coordBounds(this.#tokenCoords(tokens)));
 	}
 
@@ -737,7 +770,7 @@ export class StreamViewStream extends StreamView {
 			targets.push(...this.#combatGMTokens());
 		}
 
-		return targets;
+		return targets.filter((t) => this._tokenOnCurrentLevel(t));
 	}
 
 	/**

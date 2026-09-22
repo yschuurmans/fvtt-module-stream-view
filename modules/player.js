@@ -50,10 +50,6 @@ export class StreamViewPlayer extends StreamView {
 		if (!active || !this.isCameraDirected) {
 			return;
 		}
-		this._directedPan({
-			x: canvas.stage.pivot.x,
-			y: canvas.stage.pivot.y,
-			scale: canvas.stage.scale.x,
-		});
+		this._directedPan(this._currentViewCoord());
 	}
 }

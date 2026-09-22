@@ -19,10 +19,28 @@ export class StreamView {
 	#sceneId = null;
 
 	/**
+	 * @type {string|number|null}
+	 */
+	#levelId = null;
+
+	/**
 	 * @type {Map<string, Set<string>>}
 	 * @protected
 	 */
 	_trackedTokens = new Map();
+
+	/**
+	 * Whether the running core supports native Scene Levels (Foundry v14+).
+	 *
+	 * NOTE: unverified against a live v14 client — the feature-detect
+	 * expression below is a best guess and may need adjusting once the real
+	 * v14 API surface is confirmed.
+	 *
+	 * @returns {boolean}
+	 */
+	static get levelsSupported() {
+		return game.release.generation >= 14 && !!foundry.applications?.ui?.SceneNavigation;
+	}
 
 	/**
 	 * @returns {boolean}
@@ -121,6 +139,26 @@ export class StreamView {
 	}
 
 	/**
+	 * @returns {string|number|null}
+	 * @protected
+	 */
+	get _levelId() {
+		return this.#levelId;
+	}
+
+	/**
+	 * Compound scene+level key used to key {@link _trackedTokens}, so tracked
+	 * tokens are kept separate per Scene Level. Degrades to a constant suffix
+	 * (today's exact behavior) when levels aren't supported/in use.
+	 *
+	 * @returns {string}
+	 * @protected
+	 */
+	get _trackedTokensKey() {
+		return `${this.#sceneId}:${this.#levelId ?? ''}`;
+	}
+
+	/**
 	 * @returns {boolean}
 	 * @protected
 	 */
@@ -133,6 +171,18 @@ export class StreamView {
 		Hooks.on('renderCameraViews', (_app, html) => this.#hideStreamAVUser(html));
 		Hooks.on('updateToken', (doc) => this.#handleTrackedTokensUpdate(doc));
 		Hooks.on('deleteToken', (doc) => this.#handleTrackedTokensDelete(doc));
+
+		// Native v14 Scene Levels: switching the viewed level within an
+		// already-loaded scene may not re-fire `canvasReady`. The exact hook
+		// Foundry v14 fires for this is UNCONFIRMED against a live client —
+		// these are best-guess candidate names registered defensively (a hook
+		// name that's never called is a harmless no-op). Verify against a real
+		// v14 client and prune/replace with the confirmed hook.
+		if (StreamView.levelsSupported) {
+			['changeSceneLevel', 'sceneLevelChanged', 'viewLevel'].forEach((hook) => {
+				Hooks.on(hook, () => this.#handleCanvasReady());
+			});
+		}
 	}
 
 	/**
@@ -150,7 +200,10 @@ export class StreamView {
 		if (!this.isCameraDirected || StreamView.streamUser?.viewedScene !== game.canvas.scene.id) {
 			return;
 		}
-		if (StreamView.isCombatActive() && game.settings.get('stream-view', 'directed-combat')) { 
+		if (StreamView.levelsSupported && view.level === undefined) {
+			view = { ...view, level: this._currentLevelId() };
+		}
+		if (StreamView.isCombatActive() && game.settings.get('stream-view', 'directed-combat')) {
 			if (this._isCombatUser) {
 				this.#sendDirectedPan(view);
 			}
@@ -165,6 +218,82 @@ export class StreamView {
 	 */
 	_tokenDocumentHasTracking(doc) {
 		return !!doc.getFlag('stream-view', 'tracked');
+	}
+
+	/**
+	 * Best-effort lookup of the Scene Level (floor) the local client is
+	 * currently viewing within the active scene.
+	 *
+	 * NOTE: the exact v14 API for "current viewed level" is UNCONFIRMED — this
+	 * tries a handful of plausible accessors and falls back to `null`
+	 * (treated as "no level"/single-level scene) if none resolve. Must be
+	 * verified against a real v14 client and updated to the confirmed API.
+	 *
+	 * @returns {string|number|null}
+	 * @protected
+	 */
+	_currentLevelId() {
+		if (!StreamView.levelsSupported) {
+			return null;
+		}
+		try {
+			return (
+				game.canvas?.scene?.getActiveLevel?.()?.id ??
+				ui.nav?.viewedLevel ??
+				game.canvas?.scene?._viewedLevel ??
+				null
+			);
+		} catch {
+			return null;
+		}
+	}
+
+	/**
+	 * Whether a token belongs to the currently-viewed Scene Level. Fails
+	 * open (returns `true`) whenever levels aren't supported/in use, or when
+	 * the token's level can't be determined — this feature must never cause
+	 * a token that should be tracked to be silently dropped just because the
+	 * level lookup is uncertain.
+	 *
+	 * NOTE: the token-elevation-to-level mapping used here (`Scene#getLevelForElevation`)
+	 * is UNCONFIRMED against the real v14 API — see {@link StreamView.levelsSupported}.
+	 *
+	 * @param {Token} token
+	 * @returns {boolean}
+	 * @protected
+	 */
+	_tokenOnCurrentLevel(token) {
+		if (!StreamView.levelsSupported) {
+			return true;
+		}
+		const currentLevel = this._currentLevelId();
+		if (currentLevel == null) {
+			return true;
+		}
+		try {
+			const tokenLevel = game.canvas?.scene?.getLevelForElevation?.(token.document.elevation)?.id;
+			return tokenLevel == null || tokenLevel === currentLevel;
+		} catch {
+			return true;
+		}
+	}
+
+	/**
+	 * Synthesizes a {@link Coord} from the local client's current canvas
+	 * pivot/scale/level, for cases (entering directed mode, combat starting)
+	 * where a directed pan needs sending without an existing `canvasPan`
+	 * event to piggyback on.
+	 *
+	 * @returns {Coord}
+	 * @protected
+	 */
+	_currentViewCoord() {
+		return {
+			x: canvas.stage.pivot.x,
+			y: canvas.stage.pivot.y,
+			scale: canvas.stage.scale.x,
+			level: this._currentLevelId(),
+		};
 	}
 
 	/**
@@ -204,7 +333,7 @@ export class StreamView {
 	 * @private
 	 */
 	#handleCanvasReady() {
-		this.#updateScene()
+		this.#updateSceneAndLevel()
 	}
 
 	/**
@@ -213,9 +342,9 @@ export class StreamView {
 	 */
 	#handleTrackedTokensUpdate(doc) {
 		if (this._tokenDocumentHasTracking(doc)) {
-			this._trackedTokens.get(this._sceneId).add(doc.id);
+			this._trackedTokens.get(this._trackedTokensKey).add(doc.id);
 		} else {
-			this._trackedTokens.get(this._sceneId).delete(doc.id);
+			this._trackedTokens.get(this._trackedTokensKey).delete(doc.id);
 		}
 	}
 
@@ -224,25 +353,32 @@ export class StreamView {
 	 * @private
 	 */
 	#handleTrackedTokensDelete(token) {
-		this._trackedTokens.get(this._sceneId).delete(token.id);
+		this._trackedTokens.get(this._trackedTokensKey).delete(token.id);
 	}
 
 	/**
 	 * @private
 	 */
-	#updateScene() {
-		if (!game.canvas?.scene || this.#sceneId === game.canvas.scene.id) {
+	#updateSceneAndLevel() {
+		if (!game.canvas?.scene) {
 			return;
 		}
 
-		this.#sceneId = game.canvas.scene.id;
+		const newSceneId = game.canvas.scene.id;
+		const newLevelId = this._currentLevelId();
+		if (this.#sceneId === newSceneId && this.#levelId === newLevelId) {
+			return;
+		}
 
-		if (!this._trackedTokens.get(this._sceneId)) {
-			this._trackedTokens.set(this._sceneId, new Set());
+		this.#sceneId = newSceneId;
+		this.#levelId = newLevelId;
+
+		if (!this._trackedTokens.get(this._trackedTokensKey)) {
+			this._trackedTokens.set(this._trackedTokensKey, new Set());
 		}
 		game.canvas.tokens.placeables.forEach((t) => {
-			if (this._tokenDocumentHasTracking(t.document)) {
-				this._trackedTokens.get(this._sceneId).add(t.id);
+			if (this._tokenDocumentHasTracking(t.document) && this._tokenOnCurrentLevel(t)) {
+				this._trackedTokens.get(this._trackedTokensKey).add(t.id);
 			}
 		});
 	}
