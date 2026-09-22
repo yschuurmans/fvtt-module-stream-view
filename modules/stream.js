@@ -59,7 +59,7 @@ export class StreamViewStream extends StreamView {
 		});
 		Hooks.on('renderHeadsUpDisplay', (_app, html) => this.#appendSpeechBubblesContainer(html));
 		Hooks.on('renderSidebarTab', (app, html) => this.#handlePopout(app, html));
-		Hooks.on('renderUserConfig', (app, html) => this.#handlePopout(app, html));
+		Hooks.on('renderUserConfig', (app, html) => this.#handleRenderUserConfig(app, html));
 		Hooks.on('updateCombat', (app) => this.#updateCombat(StreamView.isCombatActive(app), app));
 		Hooks.on('deleteCombat', (app) => this.#updateCombat(false, app));
 		Hooks.on('userIsSpeaking', async (userId, isSpeaking) => this.#speakingUpdate(userId, isSpeaking));
@@ -383,6 +383,24 @@ export class StreamViewStream extends StreamView {
 	 */
 	#handleDeleteToken() {
 		this.#focusUpdate();
+	}
+
+	/**
+	 * Core auto-opens each user's own `UserConfig` sheet (prompting them to
+	 * pick a Player Character) whenever they have no `character` assigned.
+	 * The Stream user is intentionally never given one, so immediately
+	 * close it instead of letting it sit open on the Stream client.
+	 *
+	 * @param {Application} app
+	 * @param {JQuery<HTMLElement>|HTMLElement} html
+	 * @private
+	 */
+	#handleRenderUserConfig(app, html) {
+		if (StreamView.isStreamUser && app.document?.id === game.user.id) {
+			app.close();
+			return;
+		}
+		this.#handlePopout(app, html);
 	}
 
 	/**
