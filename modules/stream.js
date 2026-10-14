@@ -195,7 +195,7 @@ export class StreamViewStream extends StreamView {
 		} catch { }
 
 		if (game.settings.get('stream-view', 'show-chat') && !game.settings.get('stream-view', 'show-full-sidebar')) {
-			this.#createPopout(StreamViewOptions.PopoutIdentifiers.CHAT, ui.sidebar.tabs.chat);
+			this.#createPopout(StreamViewOptions.PopoutIdentifiers.CHAT, ui.chat);
 		}
 
 		game.canvas.tokens.releaseAll();
@@ -503,6 +503,10 @@ export class StreamViewStream extends StreamView {
 			return;
 		}
 
+		if (typeof app?.createPopout !== 'function') {
+			console.warn(`stream-view | Cannot create ${identifier} popout: createPopout() is not available`);
+			return;
+		}
 		const pop = app.createPopout();
 		this.#popouts.set(identifier, pop);
 		pop.render(true, this.#popoutOptions(identifier));
@@ -554,7 +558,7 @@ export class StreamViewStream extends StreamView {
 		const tokens = await this.#combatTokens(combat);
 
 		if (game.settings.get('stream-view', 'select-combatant')) {
-			tokens.forEach(tkn => tkn.control({ releaseOthers: false }))
+			this.#selectCombatant(combat);
 		}
 
 		if (!this.isCameraAutomatic) {
@@ -692,10 +696,24 @@ export class StreamViewStream extends StreamView {
 				this.#focusUpdate();
 				return;
 			}
-			this.#createPopout(StreamViewOptions.PopoutIdentifiers.COMBAT, ui.sidebar.tabs.combat);
+			this.#createPopout(StreamViewOptions.PopoutIdentifiers.COMBAT, ui.combat);
 		}
 
 		this.#focusCombat(combat);
+	}
+
+	/**
+	 * Deselect all tokens, then select only the current combatant's token.
+	 * @param {Combat} combat
+	 * @private
+	 */
+	#selectCombatant(combat) {
+		const token = canvas.tokens.get(combat?.combatant?.tokenId);
+		if (!token) {
+			game.canvas.tokens.releaseAll();
+			return;
+		}
+		token.control({ releaseOthers: true });
 	}
 
 	/**
@@ -703,21 +721,30 @@ export class StreamViewStream extends StreamView {
 	 * @private
 	 */
 	async #combatTokens(combat) {
-		const p = new Promise((resolve) => {
-			let released = 0;
-			if (game.settings.get('stream-view', 'select-combatant')) {
-				released = game.canvas.tokens.releaseAll();
-			}
-			if (released === 0) {
-				resolve(this.#visibleCombatTokens(combat));
-			} else {
-				Hooks.once("sightRefresh", () => {
-					resolve(this.#visibleCombatTokens(combat));
-				});
-			}
-		});
+		if (game.settings.get('stream-view', 'select-combatant') && game.canvas.tokens.releaseAll() > 0) {
+			await this.#waitForSightRefresh();
+		}
+		return this.#visibleCombatTokens(combat);
+	}
 
-		return p;
+	/**
+	 * Wait for vision to refresh after the controlled tokens changed. The `sightRefresh` hook
+	 * isn't guaranteed to fire on every core version, so fall back to a timeout to never hang.
+	 * @param {number} timeout
+	 * @private
+	 */
+	#waitForSightRefresh(timeout = 250) {
+		return new Promise((resolve) => {
+			let hookId;
+			const timer = setTimeout(() => {
+				Hooks.off('sightRefresh', hookId);
+				resolve();
+			}, timeout);
+			hookId = Hooks.once('sightRefresh', () => {
+				clearTimeout(timer);
+				resolve();
+			});
+		});
 	}
 
 	/**
@@ -814,7 +841,7 @@ export class StreamViewStream extends StreamView {
 		}
 		let templates = [];
 		if (StreamView.hasPlayerOwner(combatant.actor)) {
-			canvas.templates.placeables.forEach((t) => {
+			canvas.templates?.placeables.forEach((t) => {
 				combatant.players.forEach((p) => {
 					if (t.user === p.id) {
 						templates.push(t);
