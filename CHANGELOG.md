@@ -1,3 +1,8 @@
+## [2.0.7](https://github.com/yschuurmans/fvtt-module-stream-view/compare/v2.0.6...v2.0.7) (2026-10-14)
+
+
+
+
 ## [2.0.6](https://github.com/yschuurmans/fvtt-module-stream-view/compare/v2.0.5...v2.0.6) (2026-09-22)
 
 
